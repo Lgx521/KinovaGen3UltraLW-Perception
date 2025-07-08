@@ -32,14 +32,15 @@ def generate_launch_description():
     # 我们也在这里启动你的摄像头节点
     camera_streamer_node = Node(
         package='kinova_camera_streamer',
-        executable='rtsp_stream_node',
+
+        executable='gstreamer_node',
         name='kinova_camera_streamer_node',
         output='screen',
-        # 你可以在这里覆盖节点中的参数
-        # parameters=[
-        #     {'rtsp_url': 'rtsp://...'},
-        #     {'publish_rate': 30.0}
-        # ]
+        # 【新增】现在可以方便地在这里配置参数
+        parameters=[
+            {'gstreamer_latency_ms': 0},
+            {'frame_id': 'kinova_camera_link'}
+        ]
     )
 
     # --- 返回启动描述 ---
