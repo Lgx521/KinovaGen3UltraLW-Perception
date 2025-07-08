@@ -94,19 +94,22 @@ class GStreamerPublisher(Node):
 def main(args=None):
     rclpy.init(args=args)
     
+    # 【新增】为main函数创建一个独立的logger
+    main_logger = rclpy.logging.get_logger('main_gstreamer_node')
+    
     gstreamer_publisher_node = None
     try:
         gstreamer_publisher_node = GStreamerPublisher()
         gstreamer_publisher_node.start_capture()
         
-        # 使用单线程执行器就足够了，因为所有耗时工作都在独立的capture_thread中
         rclpy.spin(gstreamer_publisher_node)
 
     except (IOError, KeyboardInterrupt) as e:
         if isinstance(e, IOError):
-            rclpy.get_logger('main').error(f"Initialization failed: {e}")
+            # 【修改】使用新创建的logger
+            main_logger.error(f"Initialization failed: {e}")
         else: # KeyboardInterrupt
-            rclpy.get_logger('main').info("Shutdown requested by user.")
+            main_logger.info("Shutdown requested by user.")
     finally:
         if gstreamer_publisher_node:
             gstreamer_publisher_node.on_shutdown()
