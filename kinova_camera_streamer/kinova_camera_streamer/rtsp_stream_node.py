@@ -14,33 +14,86 @@ from collections import deque
 # VideoStream 类和 RtspStreamPublisher 类的定义保持不变
 # ... (请保留之前版本中这两个类的完整代码) ...
 
+# class VideoStream:
+    # """A class to read frames from a camera in a separate thread."""
+    # def __init__(self, src=0):
+    #     self.stream = cv2.VideoCapture(src)
+    #     if not self.stream.isOpened():
+    #         raise IOError(f"Cannot open video stream at {src}")
+    #     self.grabbed, self.frame = self.stream.read()
+    #     self.stopped = False
+    #     self.thread = threading.Thread(target=self.update, args=())
+    #     self.thread.daemon = True
+    #     self.thread.start()
+
+    # def update(self):
+    #     while not self.stopped:
+    #         self.grabbed, self.frame = self.stream.read()
+    #     self.stream.release()
+
+    # def read(self):
+    #     return self.frame
+
+    # def stop(self):
+    #     self.stopped = True
+    #     self.thread.join()
+
+
 class VideoStream:
-    """A class to read frames from a camera in a separate thread."""
-    def __init__(self, src=0):
+    def __init__(self, src=0, skip_frames=5): # 添加一个抽帧参数
         self.stream = cv2.VideoCapture(src)
         if not self.stream.isOpened():
             raise IOError(f"Cannot open video stream at {src}")
+        
+        self.skip_frames = skip_frames
         self.grabbed, self.frame = self.stream.read()
         self.stopped = False
+        self.lock = threading.Lock() # 使用锁来保证帧的线程安全
+        
         self.thread = threading.Thread(target=self.update, args=())
         self.thread.daemon = True
         self.thread.start()
 
     def update(self):
         while not self.stopped:
-            self.grabbed, self.frame = self.stream.read()
+            # 【核心优化】主动抽帧，丢弃旧帧
+            for _ in range(self.skip_frames):
+                if not self.stream.grab():
+                    # 如果流结束或出错，就停止
+                    self.stopped = True
+                    return
+            
+            # 读取我们真正需要的那一帧
+            grabbed, frame = self.stream.read()
+            with self.lock:
+                self.grabbed = grabbed
+                self.frame = frame
         self.stream.release()
 
     def read(self):
-        return self.frame
+        with self.lock:
+            # 创建一个帧的副本以避免线程冲突
+            frame = self.frame.copy() if self.grabbed else None
+        return frame
 
     def stop(self):
         self.stopped = True
         self.thread.join()
 
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
+
+
 class RtspStreamPublisher(Node):
     def __init__(self):
         super().__init__('rtsp_stream_publisher')
+
+        qos_profile = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1, # 只保留最新的1条消息
+            durability=QoSDurabilityPolicy.VOLATILE, # 不为晚加入的订阅者保留历史消息
+            # deadline=rclpy.duration.Duration(seconds=0.04) # 期望在40ms内收到
+        )
         
         self.declare_parameter('rtsp_url', 'rtsp://192.168.1.10/color')
         self.declare_parameter('topic_name', '/kinova_camera/color/image_raw')
@@ -54,7 +107,8 @@ class RtspStreamPublisher(Node):
         self.get_logger().info(f"Publishing to topic: {topic_name}")
         self.get_logger().info(f"Publish rate: {publish_rate} Hz")
 
-        self.publisher_ = self.create_publisher(Image, topic_name, 10)
+        # self.publisher_ = self.create_publisher(Image, topic_name, 10)
+        self.publisher_ = self.create_publisher(Image, topic_name, qos_profile)
         self.bridge = CvBridge()
         
         self.ros_image_queue = deque(maxlen=1)
@@ -82,8 +136,11 @@ class RtspStreamPublisher(Node):
             if frame is not None:
                 ros_image_msg = self.bridge.cv2_to_imgmsg(frame, "bgr8")
                 self.ros_image_queue.append(ros_image_msg)
-            else:
-                time.sleep(0.01)
+            
+            # 【核心优化】给线程一个极小的休眠时间
+            # 这可以让出GIL，让其他Python线程有机会运行
+            # 0.001秒远小于一帧的时间（33ms），不会影响整体性能
+            time.sleep(0.001) 
         self.get_logger().info("Frame processing thread stopped.")
 
     def publisher_callback(self):
