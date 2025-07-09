@@ -1,0 +1,9 @@
+# Goal: The target pose for the end-effector
+geometry_msgs/PoseStamped target_pose
+---
+# Result: True if successful, false otherwise
+bool success
+string message
+---
+# Feedback: Current status or progress
+string status

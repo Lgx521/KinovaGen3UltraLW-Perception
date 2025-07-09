@@ -3,36 +3,26 @@ from rclpy.action import ActionServer, ActionClient, GoalResponse
 from rclpy.node import Node
 import time
 
-# 导入我们自己定义的Action
-from arm_controller.action import MoveToPose
+# 导入我们自己定义的Action，注意包名变成了 arm_action_controller
+from arm_action_controller.action import MoveToPose
 
-# 导入底层MoveGroup Action及其消息
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import MotionPlanRequest, Constraints, PositionConstraint, OrientationConstraint, BoundingVolume
 from shape_msgs.msg import SolidPrimitive
 from geometry_msgs.msg import PoseStamped
 
-
 class PoseActionServer(Node):
-    """
-    This node provides a simple Action interface (/move_to_pose) to control the robot arm.
-    It receives a simple PoseStamped goal and translates it into a complex goal for the
-    underlying /move_group Action server provided by MoveIt.
-    """
-
     def __init__(self):
         super().__init__('pose_action_server')
         
-        # 1. 创建我们自己的Action服务器，等待外部调用
         self._action_server = ActionServer(
             self,
             MoveToPose,
-            'move_to_pose', # 我们的Action的名称
+            'move_to_pose',
             goal_callback=self.goal_callback,
             execute_callback=self.execute_callback)
         self.get_logger().info('MoveToPose Action Server has been started.')
 
-        # 2. 创建用于与MoveGroup通信的Action客户端
         self._move_group_client = ActionClient(self, MoveGroup, '/move_group')
         self.get_logger().info('Connecting to /move_group action server...')
         if not self._move_group_client.wait_for_server(timeout_sec=5.0):
@@ -42,26 +32,19 @@ class PoseActionServer(Node):
         self.get_logger().info('/move_group action server is available.')
 
     def goal_callback(self, goal_request):
-        """Accepts or rejects a client request to begin an action."""
         self.get_logger().info('Received goal request')
         return GoalResponse.ACCEPT
 
     async def execute_callback(self, goal_handle):
-        """Executes a goal."""
         self.get_logger().info('Executing goal...')
         
-        # 从收到的goal中提取目标姿态
         target_pose = goal_handle.request.target_pose
-
-        # 构建发送给 /move_group 的复杂Goal
         move_group_goal = self.create_move_group_goal(target_pose)
         
-        # 发送feedback给我们的客户端
         feedback_msg = MoveToPose.Feedback()
         feedback_msg.status = "PLANNING"
         goal_handle.publish_feedback(feedback_msg)
 
-        # 异步发送Goal给MoveGroup
         goal_handle_movegroup = await self._move_group_client.send_goal_async(move_group_goal)
         
         if not goal_handle_movegroup.accepted:
@@ -73,8 +56,6 @@ class PoseActionServer(Node):
             return result
 
         self.get_logger().info('MoveGroup goal accepted.')
-
-        # 获取最终结果
         result_from_movegroup = await goal_handle_movegroup.get_result_async()
         
         final_result = MoveToPose.Result()
@@ -93,16 +74,11 @@ class PoseActionServer(Node):
         return final_result
 
     def create_move_group_goal(self, pose_stamped: PoseStamped) -> MoveGroup.Goal:
-        """Helper function to convert a simple PoseStamped to a complex MoveGroup.Goal"""
         goal_msg = MoveGroup.Goal()
         plan_request = MotionPlanRequest()
         
-        # =================================================================
-        # TODO: 在这里确认并修改为你的机器人配置
-        # =================================================================
-        GROUP_NAME = "arm_manipulator"  # 在RViz中确认的规划组名称
-        END_EFFECTOR_LINK = "link_6"    # 在RViz中确认的末端连杆名称
-        # =================================================================
+        GROUP_NAME = "arm_manipulator"
+        END_EFFECTOR_LINK = "link_6"
 
         plan_request.group_name = GROUP_NAME
         plan_request.num_planning_attempts = 5
@@ -116,7 +92,7 @@ class PoseActionServer(Node):
         bounding_box = BoundingVolume()
         primitive = SolidPrimitive()
         primitive.type = SolidPrimitive.BOX
-        primitive.dimensions = [0.01, 0.01, 0.01] # 1cm的容差
+        primitive.dimensions = [0.01, 0.01, 0.01]
         bounding_box.primitives.append(primitive)
         bounding_box.primitive_poses.append(pose_stamped.pose)
         pos_constraint.constraint_region = bounding_box
@@ -140,7 +116,6 @@ class PoseActionServer(Node):
         goal_msg.planning_options.replan_attempts = 5
         
         return goal_msg
-
 
 def main(args=None):
     rclpy.init(args=args)
