@@ -84,6 +84,12 @@ class PoseActionServer(Node):
         plan_request.group_name = GROUP_NAME
         plan_request.num_planning_attempts = 5
         plan_request.allowed_planning_time = 5.0
+
+        # 设置最大速度的缩放比例。0.1 表示使用最大速度的10%。
+        plan_request.max_velocity_scaling_factor = 0.25
+        
+        # 设置最大加速度的缩放比例。0.1 表示使用最大加速度的10%。
+        plan_request.max_acceleration_scaling_factor = 0.25
         
         constraints = Constraints()
         pos_constraint = PositionConstraint()
