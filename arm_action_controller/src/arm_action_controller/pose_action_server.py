@@ -5,7 +5,6 @@ from rclpy.action import ActionServer, ActionClient, GoalResponse
 from rclpy.node import Node
 import time
 
-# 导入我们自己定义的Action，注意包名变成了 arm_action_controller
 from arm_action_controller.action import MoveToPose
 
 from moveit_msgs.action import MoveGroup
@@ -25,7 +24,7 @@ class PoseActionServer(Node):
             execute_callback=self.execute_callback)
         self.get_logger().info('MoveToPose Action Server has been started.')
 
-        self._move_group_client = ActionClient(self, MoveGroup, '/move_group')
+        self._move_group_client = ActionClient(self, MoveGroup, '/move_action')
         self.get_logger().info('Connecting to /move_group action server...')
         if not self._move_group_client.wait_for_server(timeout_sec=5.0):
             self.get_logger().error('/move_group action server not available after 5s! Shutting down.')
