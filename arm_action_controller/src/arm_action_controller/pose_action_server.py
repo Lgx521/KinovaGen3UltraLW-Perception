@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import rclpy
 from rclpy.action import ActionServer, ActionClient, GoalResponse
 from rclpy.node import Node
@@ -77,8 +79,8 @@ class PoseActionServer(Node):
         goal_msg = MoveGroup.Goal()
         plan_request = MotionPlanRequest()
         
-        GROUP_NAME = "arm_manipulator"
-        END_EFFECTOR_LINK = "link_6"
+        GROUP_NAME = "manipulator"
+        END_EFFECTOR_LINK = "end_effector_link"
 
         plan_request.group_name = GROUP_NAME
         plan_request.num_planning_attempts = 5
