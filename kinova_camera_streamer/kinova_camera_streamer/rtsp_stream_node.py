@@ -47,7 +47,7 @@ class GStreamerPublisher(Node):
 
         # --- 4. 设置ROS发布者 ---
         qos_profile = QoSProfile(
-            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            reliability=QoSReliabilityPolicy.RELIABLE,
             history=QoSHistoryPolicy.KEEP_LAST,
             depth=1,
             durability=QoSDurabilityPolicy.VOLATILE
