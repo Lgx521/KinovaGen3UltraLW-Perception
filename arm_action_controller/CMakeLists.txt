@@ -7,7 +7,7 @@ endif()
 
 # Find necessary packages
 find_package(ament_cmake REQUIRED)
-find_package(ament_python REQUIRED)
+find_package(ament_cmake_python REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -26,7 +26,7 @@ install(PROGRAMS ${python_scripts}
 )
 
 # Standard ament_python setup for entry points
-ament_python_install_package(${PROJECT_NAME})
+# ament_python_install_package(${PROJECT_NAME})
 
 # Install launch files and config files if you have them
 install(
