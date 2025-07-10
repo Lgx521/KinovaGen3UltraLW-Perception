@@ -17,6 +17,7 @@
     ```
 
   - Move to specific postion (pos+quarternion)
+    Parallel to the XY plan (base link)
     ```bash 
     ros2 action send_goal /move_to_pose arm_action_controller/action/MoveToPose "{
       target_pose: {
@@ -28,3 +29,19 @@
       }
     }" --feedback 
     ```
+    Head down the end effector (Parallel to -Z direction)
+    ```bash 
+    ros2 action send_goal /move_to_pose arm_action_controller/action/MoveToPose "{
+      target_pose: {
+        header: { frame_id: 'base_link' },
+        pose: {
+          position: { x: 0.3, y: 0.0, z: 0.45 },
+          orientation: { x: 0.0, y: 0.707, z: 0.0, w: 0.707 }
+        }
+      }
+    }" --feedback 
+    ```
+
+## Testing
+#### XYZ static angle converting to Quarternion
+Use the script `XYZ_to_quarternion.py` @ `/scripts/XYZ_to_quarternion.py` 
