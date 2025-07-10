@@ -36,7 +36,7 @@
         header: { frame_id: 'base_link' },
         pose: {
           position: { x: 0.3, y: 0.0, z: 0.45 },
-          orientation: { x: 0.0, y: 0.707, z: 0.0, w: 0.707 }
+          orientation: { x: 0.0, y: 1, z: 0.0, w: 0.0 }
         }
       }
     }" --feedback 
