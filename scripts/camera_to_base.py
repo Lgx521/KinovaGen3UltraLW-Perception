@@ -31,11 +31,11 @@ class PoseTransformer(Node):
         # 示例位姿：定义一个点在 camera_link 坐标系下的位置和方向
         # 位置 (x, y, z) 单位: 米
         # 示例: 在相机右侧0.1m, 下方0.05m, 前方0.5m处的一个点
-        self.source_position = np.array([0.1, 0.05, 0.5]) 
+        self.source_position = np.array([-0.00441, 0.004495, 0.293]) 
         
         # 方向 (四元数: x, y, z, w)
         # 示例: 无旋转 (与相机坐标系方向一致)
-        self.source_orientation_quat = np.array([0.0, 0.0, 0.0, 1.0])
+        self.source_orientation_quat = np.array([0.29491, 0.293475, 0.6445674, -0.641430664])
 
         self.get_logger().info(f"Transforming a pose from '{self.source_frame}' to '{self.target_frame}'.")
         self.get_logger().info(
