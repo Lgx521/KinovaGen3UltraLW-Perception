@@ -382,160 +382,66 @@ class KinovaGraspController(Node):
         
         return approach_pose
     
-    def transform_grasp_center_to_ee(self, grasp_pose_camera: PoseStamped) -> PoseStamped:
+    def transform_grasp_center_to_ee(self, grasp_pose_camera: PoseStamped) -> Optional[PoseStamped]:
         """
-        Transform grasp pose from camera frame to end-effector frame
-        
-        This function handles the transformation from GraspNet's output (grasp_center in camera frame)
-        to the robot's end-effector pose in base_link frame.
-        
+        Transforms a grasp pose, defined for the 'grasp_center' frame in the camera's view,
+        into a target pose for the robot's end-effector ('ee_frame') in the 'base_link' frame.
+
         Args:
-            grasp_pose_camera: Grasp center pose in camera frame from GraspNet
-            
+            grasp_pose_camera: The desired pose for 'grasp_center', relative to the camera frame.
+
         Returns:
-            End-effector pose in base_link frame for robot execution
+            The corresponding target pose for 'ee_frame', relative to 'base_link', or None on failure.
         """
         try:
-            # 💾 保存所有变换矩阵用于调试
-            import json
-            import time as time_module
-            
-            # Step 1: Transform grasp_center from camera frame to base_link frame
-            grasp_center_base = self.transform_pose(grasp_pose_camera, self.base_frame)
-            if grasp_center_base is None:
-                self.get_logger().error("Failed to transform grasp center to base frame")
+            # Step 1: Transform the desired grasp_center pose from the camera frame to the base frame.
+            # This gives us T_base_gc_target.
+            grasp_center_pose_base = self.transform_pose(grasp_pose_camera, self.base_frame)
+            if grasp_center_pose_base is None:
+                self.get_logger().error("Failed to transform grasp center pose to base frame.")
                 return None
             
-            # 💾 获取并保存关键变换矩阵
-            debug_matrices = {}
-            timestamp = int(time_module.time())
-            
-            # 获取所有相关的变换矩阵
-            transform_pairs = [
-                ('camera_depth_frame', 'grasp_center', 'grasp_center_to_camera'),
-                (self.ee_frame, 'camera_depth_frame', 'camera_to_ee'),  
-                (self.base_frame, self.ee_frame, 'ee_to_base'),
-                (self.base_frame, 'grasp_center', 'grasp_center_to_base_direct'),
-                (self.base_frame, 'camera_depth_frame', 'camera_to_base_direct'),
-                (self.ee_frame, 'grasp_center', 'grasp_center_to_ee_direct')
-            ]
-            
-            for target_frame, source_frame, name in transform_pairs:
-                try:
-                    transform = self.tf_buffer.lookup_transform(
-                        target_frame, source_frame, rclpy.time.Time(),
-                        timeout=rclpy.duration.Duration(seconds=1.0)
-                    )
-                    matrix = self.transform_to_matrix(transform)
-                    debug_matrices[name] = {
-                        'matrix': matrix.tolist(),
-                        'translation': [float(matrix[0,3]), float(matrix[1,3]), float(matrix[2,3])],
-                        'target_frame': target_frame,
-                        'source_frame': source_frame
-                    }
-                    self.get_logger().info(f"✅ 获取变换 {source_frame} → {target_frame}")
-                except Exception as e:
-                    debug_matrices[name] = {'error': str(e)}
-                    self.get_logger().warn(f"❌ 无法获取变换 {source_frame} → {target_frame}: {e}")
-            
-            # 保存输入的抓取位姿
-            debug_matrices['input_grasp_pose_camera'] = {
-                'position': [float(grasp_pose_camera.pose.position.x), 
-                           float(grasp_pose_camera.pose.position.y),
-                           float(grasp_pose_camera.pose.position.z)],
-                'orientation': [float(grasp_pose_camera.pose.orientation.x),
-                              float(grasp_pose_camera.pose.orientation.y), 
-                              float(grasp_pose_camera.pose.orientation.z),
-                              float(grasp_pose_camera.pose.orientation.w)],
-                'frame_id': grasp_pose_camera.header.frame_id
-            }
-            
-            # Step 2: Get current transform from grasp_center to end-effector
-            # This tells us the relative pose between grasp_center and ee
+            T_base_gc_target = self.pose_stamped_to_matrix(grasp_center_pose_base)
+
+            # Step 2: Get the static transform from 'ee_frame' to 'grasp_center'.
+            # Note: lookup_transform('target', 'source') gives T_target_source.
+            # We want T_gc_ee, but TF gives us T_ee_gc. So we will invert it.
             try:
-                transform_gc_to_ee = self.tf_buffer.lookup_transform(
-                    self.ee_frame,
-                    'grasp_center',
+                # Let's get T_ee_gc (transform from grasp_center to ee_frame)
+                transform_ee_to_gc = self.tf_buffer.lookup_transform(
+                    self.ee_frame,       # Target Frame
+                    'grasp_center',      # Source Frame
                     rclpy.time.Time(),
-                    timeout=rclpy.duration.Duration(seconds=0.5)
+                    timeout=rclpy.duration.Duration(seconds=1.0)
                 )
-                
-                # Convert transform to matrix
-                gc_to_ee_matrix = self.transform_to_matrix(transform_gc_to_ee)
-                
-                self.get_logger().info(f"✅ 成功获取TF变换 grasp_center → {self.ee_frame}")
-                self.get_logger().info(f"  Translation: ({gc_to_ee_matrix[0,3]:.6f}, {gc_to_ee_matrix[1,3]:.6f}, {gc_to_ee_matrix[2,3]:.6f})")
-                
-                debug_matrices['used_gc_to_ee'] = {
-                    'source': 'TF_lookup',
-                    'matrix': gc_to_ee_matrix.tolist()
-                }
-                
+                T_ee_gc_static = self.transform_to_matrix(transform_ee_to_gc)
+
             except TransformException as e:
-                # If grasp_center frame not available, use default offset
-                self.get_logger().warn(f"❌ grasp_center frame not available: {e}")
-                self.get_logger().warn("使用硬编码偏移 -0.129m")
-                # Default offset: ee is ~8.1cm behind grasp_center along approach direction
-                gc_to_ee_matrix = np.eye(4)
-                gc_to_ee_matrix[2, 3] = -0.129  # Offset along Z axis
-                
-                debug_matrices['used_gc_to_ee'] = {
-                    'source': 'hardcoded_fallback',
-                    'matrix': gc_to_ee_matrix.tolist(),
-                    'error': str(e)
-                }
+                self.get_logger().error(f"Failed to look up transform from 'grasp_center' to '{self.ee_frame}': {e}")
+                self.get_logger().error("Ensure grasp_center_publisher.py is running and publishing the TF.")
+                return None
+
+            # Step 3: Calculate the target pose for the end-effector.
+            # Formula: T_base_ee_target = T_base_gc_target * (T_ee_gc_static)^-1
+            # (T_ee_gc_static)^-1 is the transform from grasp_center to ee_frame, T_gc_ee_static.
+            T_gc_ee_static = np.linalg.inv(T_ee_gc_static)
             
-            # Step 3: Convert grasp_center pose to matrix
-            grasp_center_matrix = self.pose_stamped_to_matrix(grasp_center_base)
+            # The multiplication order is crucial.
+            T_base_ee_target = T_base_gc_target @ T_gc_ee_static
             
-            # Step 4: Compute end-effector pose in base frame
-            # ee_in_base = grasp_center_in_base * grasp_center_to_ee
-            ee_pose_matrix = grasp_center_matrix @ gc_to_ee_matrix
-            
-            # Step 5: Convert back to PoseStamped
-            ee_pose_base = self.matrix_to_pose_stamped(ee_pose_matrix, self.base_frame)
-            
-            # 💾 保存计算过程和最终结果
-            debug_matrices['computed_grasp_center_base'] = {
-                'matrix': grasp_center_matrix.tolist(),
-                'position': [float(grasp_center_base.pose.position.x),
-                           float(grasp_center_base.pose.position.y), 
-                           float(grasp_center_base.pose.position.z)],
-                'orientation': [float(grasp_center_base.pose.orientation.x),
-                              float(grasp_center_base.pose.orientation.y),
-                              float(grasp_center_base.pose.orientation.z), 
-                              float(grasp_center_base.pose.orientation.w)]
-            }
-            
-            debug_matrices['computed_ee_base'] = {
-                'matrix': ee_pose_matrix.tolist(), 
-                'position': [float(ee_pose_base.pose.position.x),
-                           float(ee_pose_base.pose.position.y),
-                           float(ee_pose_base.pose.position.z)],
-                'orientation': [float(ee_pose_base.pose.orientation.x),
-                              float(ee_pose_base.pose.orientation.y),
-                              float(ee_pose_base.pose.orientation.z),
-                              float(ee_pose_base.pose.orientation.w)]
-            }
-            
-            # 保存到文件
-            debug_file = f"/home/q/Graspnet/graspnet-baseline/kinova_graspnet_ros2/grasp_debug_{timestamp}.json"
-            try:
-                with open(debug_file, 'w') as f:
-                    json.dump(debug_matrices, f, indent=2)
-                self.get_logger().info(f"💾 调试信息已保存到: {debug_file}")
-            except Exception as save_error:
-                self.get_logger().warn(f"❌ 无法保存调试文件: {save_error}")
-            
-            self.get_logger().info(f'Grasp transformation complete:')
-            self.get_logger().info(f'  Grasp center (camera): ({grasp_pose_camera.pose.position.x:.3f}, {grasp_pose_camera.pose.position.y:.3f}, {grasp_pose_camera.pose.position.z:.3f})')
-            self.get_logger().info(f'  Grasp center (base): ({grasp_center_base.pose.position.x:.3f}, {grasp_center_base.pose.position.y:.3f}, {grasp_center_base.pose.position.z:.3f})')
-            self.get_logger().info(f'  End-effector (base): ({ee_pose_base.pose.position.x:.3f}, {ee_pose_base.pose.position.y:.3f}, {ee_pose_base.pose.position.z:.3f})')
+            # Step 4: Convert the resulting matrix back to a PoseStamped message.
+            ee_pose_base = self.matrix_to_pose_stamped(T_base_ee_target, self.base_frame)
+
+            # Logging for verification
+            self.get_logger().info(f'Grasp transformation successful:')
+            self.get_logger().info(f'  Input Grasp Center (camera): pos({grasp_pose_camera.pose.position.x:.3f}, {grasp_pose_camera.pose.position.y:.3f}, {grasp_pose_camera.pose.position.z:.3f})')
+            self.get_logger().info(f'  Target Grasp Center (base): pos({grasp_center_pose_base.pose.position.x:.3f}, {grasp_center_pose_base.pose.position.y:.3f}, {grasp_center_pose_base.pose.position.z:.3f})')
+            self.get_logger().info(f'  Calculated EE Target (base): pos({ee_pose_base.pose.position.x:.3f}, {ee_pose_base.pose.position.y:.3f}, {ee_pose_base.pose.position.z:.3f})')
             
             return ee_pose_base
-            
+
         except Exception as e:
-            self.get_logger().error(f'Failed to transform grasp: {str(e)}')
+            self.get_logger().error(f'An unexpected error occurred in transform_grasp_center_to_ee: {str(e)}')
             import traceback
             self.get_logger().error(f'Traceback: {traceback.format_exc()}')
             return None

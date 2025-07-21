@@ -879,10 +879,16 @@ class GraspDetectionService(Node):
             # 转换: 先绕Z轴旋转-90°, 再绕新Y轴旋转+90°
             from scipy.spatial.transform import Rotation as R
             
-            rotation_z_neg90 = R.from_euler('z', -90, degrees=True).as_matrix()
-            rotation_y_pos90 = R.from_euler('y', -90, degrees=True).as_matrix()
-            graspnet_to_tf_rotation = rotation_y_pos90 @ rotation_z_neg90
+            # rotation_z_neg90 = R.from_euler('z', -90, degrees=True).as_matrix()
+            # rotation_y_pos90 = R.from_euler('y', -90, degrees=True).as_matrix()
+            # graspnet_to_tf_rotation = rotation_y_pos90 @ rotation_z_neg90
             
+            graspnet_to_tf_rotation = np.array([
+                [0,1,0],
+                [0,0,1],
+                [1,0,0]
+            ])
+
             # 构建4x4齐次变换矩阵（坐标系变换，只有旋转，无平移）
             graspnet_to_tf_transform = np.eye(4)
             graspnet_to_tf_transform[:3, :3] = graspnet_to_tf_rotation
