@@ -20,7 +20,7 @@ class AprilTagDetector(Node):
         self.get_logger().info("AprilTag Live Detector with TF Transformation has been started.")
 
         # --- 1. 参数和配置 ---
-        self.declare_parameter('marker_size', 0.05)
+        self.declare_parameter('marker_size', 0.035)
         self.declare_parameter('image_topic', '/camera/color/image_raw')
         self.declare_parameter('info_topic', '/camera/color/camera_info')
         # 新增TF相关参数
@@ -128,11 +128,14 @@ class AprilTagDetector(Node):
         final_position = pos_base_tag
         final_quat = rot_base_tag.as_quat() # [x, y, z, w]
 
+        rot_base_tag = rot_base_tag.as_rotvec()
+
         # 5. 按指定格式打印
         self.get_logger().info(
             f"--- Pose of Marker ID: {marker_id[0]} in '{self.target_frame}' frame ---\n"
             f"  position: {{ x: {final_position[0]:.4f}, y: {final_position[1]:.4f}, z: {final_position[2]:.4f} }},\n"
-            f"  orientation: {{ x: {final_quat[0]:.4f}, y: {final_quat[1]:.4f}, z: {final_quat[2]:.4f}, w: {final_quat[3]:.4f} }}"
+            f"  orientation: {{ x: {final_quat[0]:.6f}, y: {final_quat[1]:.6f}, z: {final_quat[2]:.6f}, w: {final_quat[3]:.6f} }}\n"
+            f"  orientation_ang: {{ rx: {rot_base_tag[0]:.4f}, ry: {rot_base_tag[1]:.4f}, rz: {rot_base_tag[2]:.4f} }}"
         )
 
 def main(args=None):

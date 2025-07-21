@@ -45,3 +45,23 @@
 ## Testing
 #### XYZ static angle converting to Quarternion
 Use the script `XYZ_to_quarternion.py` @ `/scripts/XYZ_to_quarternion.py` 
+
+
+    ros2 action send_goal /move_to_pose arm_action_controller/action/MoveToPose "{
+      target_pose: {
+        header: { frame_id: 'base_link' },
+        pose: {
+          position: { x: 0.3866, y: 0.0694, z: 0.032 },
+          orientation: { x: -0.009629, y: -0.000665, z: -0.999802, w: 0.017419 }
+        }
+      }
+    }" --feedback 
+
+
+   position: { x: 0.3867, y: 0.0694, z: 0.0262 },
+  orientation: { x: -0.009629, y: -0.000665, z: -0.999802, w: 0.017419 }
+
+  [INFO] [1753123606.496630089] [apriltag_detector_node]: --- Pose of Marker ID: 0 in 'base_link' frame ---
+  position: { x: 0.3813, y: 0.1117, z: 0.0256 },
+  orientation: { x: 0.008357, y: 0.001405, z: 0.999437, w: -0.032456 }
+  orientation_ang: { rx: -0.0257, ry: -0.0043, rz: -3.0766 }
