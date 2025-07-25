@@ -1,82 +1,63 @@
+# color_pointcloud_generator_optimized.py
+
 import rclpy
 from rclpy.node import Node
 import numpy as np
 import message_filters
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
 from cv_bridge import CvBridge
-import struct
 
-class ColorPointCloudGenerator(Node):
-    """
-    一个将已配准的深度图和彩色图合成为彩色点云的ROS 2节点。
-    """
+# 这是关键，我们定义一个结构化的numpy数据类型来匹配PointCloud2的格式
+# 这样可以一次性将所有数据转换为字节流，而不是用for循环和struct.pack
+from ros2_numpy.point_cloud2 import array_to_pointcloud2
+
+class ColorPointCloudGeneratorOptimized(Node):
     def __init__(self):
-        super().__init__('color_pointcloud_generator')
+        super().__init__('color_pointcloud_generator_optimized')
 
-        # --- 参数定义 ---
-        # 使用declare_parameter来让话题名称等配置更加灵活
+        # 参数定义和之前一样
         self.declare_parameter('color_topic', '/camera/color/image_raw')
         self.declare_parameter('depth_topic', '/camera/depth_registered/image_rect')
         self.declare_parameter('camera_info_topic', '/camera/color/camera_info')
         self.declare_parameter('output_topic', '/camera/points_colored')
         
-        # 获取参数值
         color_topic = self.get_parameter('color_topic').get_parameter_value().string_value
         depth_topic = self.get_parameter('depth_topic').get_parameter_value().string_value
         camera_info_topic = self.get_parameter('camera_info_topic').get_parameter_value().string_value
         output_topic = self.get_parameter('output_topic').get_parameter_value().string_value
 
-        # --- 成员变量初始化 ---
         self.bridge = CvBridge()
-        self.camera_intrinsics = None # 用于存储相机内参
-
-        # --- 发布者 ---
+        self.camera_intrinsics = None
+        
         self.pc_publisher = self.create_publisher(PointCloud2, output_topic, 10)
 
-        # --- 订阅者与消息同步 ---
-        # 使用message_filters来同步彩色图、深度图和相机信息
         color_sub = message_filters.Subscriber(self, Image, color_topic)
         depth_sub = message_filters.Subscriber(self, Image, depth_topic)
         info_sub = message_filters.Subscriber(self, CameraInfo, camera_info_topic)
-
-        # 使用ApproximateTimeSynchronizer，因为它对时间戳的微小差异更具鲁棒性
+        
         self.time_synchronizer = message_filters.ApproximateTimeSynchronizer(
-            [color_sub, depth_sub, info_sub], queue_size=10, slop=0.1
+            [color_sub, depth_sub, info_sub], queue_size=10, slop=0.2 # slop可以适当调大一点
         )
         self.time_synchronizer.registerCallback(self.pointcloud_callback)
 
-        self.get_logger().info('彩色点云生成节点已启动...')
-        self.get_logger().info(f'订阅彩色图像: {color_topic}')
-        self.get_logger().info(f'订阅深度图像: {depth_topic}')
-        self.get_logger().info(f'订阅相机信息: {camera_info_topic}')
-        self.get_logger().info(f'发布点云话题: {output_topic}')
-
+        self.get_logger().info('优化的彩色点云生成节点已启动...')
 
     def pointcloud_callback(self, color_msg, depth_msg, info_msg):
-        """
-        同步消息的回调函数，处理图像并生成点云。
-        """
-        # --- 1. 获取相机内参 (仅在第一次时处理) ---
+        # 1. 获取相机内参 (仅一次)
         if self.camera_intrinsics is None:
-            self.camera_intrinsics = {
-                'fx': info_msg.k[0],
-                'fy': info_msg.k[4],
-                'cx': info_msg.k[2],
-                'cy': info_msg.k[5],
-                'width': info_msg.width,
-                'height': info_msg.height
-            }
-            self.get_logger().info(f"相机内参已获取: {self.camera_intrinsics}")
+            self.K = np.array(info_msg.k).reshape(3, 3)
+            self.fx = self.K[0, 0]
+            self.fy = self.K[1, 1]
+            self.cx = self.K[0, 2]
+            self.cy = self.K[1, 2]
+            self.camera_intrinsics = True
+            self.get_logger().info(f"相机内参已获取: fx={self.fx}, fy={self.fy}, cx={self.cx}, cy={self.cy}")
 
-        # --- 2. 将ROS Image消息转换为OpenCV/Numpy格式 ---
+        # 2. 图像转换
         try:
-            # 彩色图通常是 'bgr8'
             color_image = self.bridge.imgmsg_to_cv2(color_msg, 'bgr8')
-            # 深度图通常是 '16UC1' (毫米) 或 '32FC1' (米)
             if depth_msg.encoding == '16UC1':
-                depth_image = self.bridge.imgmsg_to_cv2(depth_msg, '16UC1')
-                # 将毫米转换为米
-                depth_image = depth_image.astype(np.float32) / 1000.0
+                depth_image = self.bridge.imgmsg_to_cv2(depth_msg, '16UC1').astype(np.float32) / 1000.0
             elif depth_msg.encoding == '32FC1':
                 depth_image = self.bridge.imgmsg_to_cv2(depth_msg, '32FC1')
             else:
@@ -85,85 +66,63 @@ class ColorPointCloudGenerator(Node):
         except Exception as e:
             self.get_logger().error(f"转换图像失败: {e}")
             return
-
-        # --- 3. 核心计算：从像素生成3D点 ---
-        # 使用Numpy向量化操作，避免Python的for循环，性能更高
+        
+        # --- 核心优化部分 ---
         height, width = depth_image.shape
-        fx, fy, cx, cy = (self.camera_intrinsics['fx'], self.camera_intrinsics['fy'], 
-                          self.camera_intrinsics['cx'], self.camera_intrinsics['cy'])
+        
+        # 过滤掉无效深度值
+        valid_mask = (depth_image > 0) & np.isfinite(depth_image)
 
-        # 创建像素坐标网格
+        # 1. 创建像素坐标网格 (Vectorized)
         u_grid, v_grid = np.meshgrid(np.arange(width), np.arange(height))
 
-        # 获取深度值 Z
+        # 2. 反投影计算 (Vectorized)
         Z = depth_image
-
-        # 过滤掉无效的深度值 (0 或 NaN)
-        valid_mask = (Z > 0) & np.isfinite(Z)
-
-        # 反投影公式计算 X 和 Y
-        X = np.where(valid_mask, (u_grid - cx) * Z / fx, 0)
-        Y = np.where(valid_mask, (v_grid - cy) * Z / fy, 0)
+        X = np.where(valid_mask, (u_grid - self.cx) * Z / self.fx, 0)
+        Y = np.where(valid_mask, (v_grid - self.cy) * Z / self.fy, 0)
         
-        # 将X, Y, Z和颜色信息组合起来
-        points_3d = np.dstack((X, Y, Z))[valid_mask]
-        colors_bgr = color_image[valid_mask]
-
-        # --- 4. 构建 PointCloud2 消息 ---
-        # 定义点云字段。我们需要x, y, z和rgb
-        fields = [
-            PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
-            PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
-            PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
-            PointField(name='rgb', offset=12, datatype=PointField.UINT32, count=1),
-        ]
+        # 3. 将XYZ坐标和颜色组合成结构化数组 (Vectorized)
+        xyz = np.dstack((X, Y, Z))[valid_mask]
+        rgb = color_image[valid_mask]
         
-        # 将BGR颜色打包成一个UINT32整数
-        # OpenCV的BGR格式是(Blue, Green, Red)
-        # 我们需要打包成 0x00RRGGBB 的格式
-        B = colors_bgr[:, 0].astype(np.uint32)
-        G = colors_bgr[:, 1].astype(np.uint32)
-        R = colors_bgr[:, 2].astype(np.uint32)
-        rgb_packed = (R << 16) | (G << 8) | B
-
-        # 将点数据和颜色数据打包成二进制
-        points_data = []
-        for i in range(len(points_3d)):
-            x, y, z = points_3d[i]
-            rgb = rgb_packed[i]
-            # struct.pack将数据打包成字节流, '<'表示小端序
-            points_data.append(struct.pack('<fffI', x, y, z, rgb))
+        # 创建一个结构化的numpy数组
+        # 'names'定义了字段名, 'formats'定义了每个字段的数据类型
+        # 'f4'是4字节浮点数 (float32), 'u1'是1字节无符号整数 (uint8)
+        points_struct = np.zeros(xyz.shape[0], dtype={
+            'names': ('x', 'y', 'z', 'b', 'g', 'r', 'a'),
+            'formats': ('f4', 'f4', 'f4', 'u1', 'u1', 'u1', 'u1'),
+            'offsets': (0, 4, 8, 12, 13, 14, 15),
+            'itemsize': 16
+        })
         
-        # 创建PointCloud2消息头
-        header = color_msg.header # 关键！使用彩色图的header，包含正确的frame_id和timestamp
+        points_struct['x'] = xyz[:, 0]
+        points_struct['y'] = xyz[:, 1]
+        points_struct['z'] = xyz[:, 2]
+        points_struct['b'] = rgb[:, 0]
+        points_struct['g'] = rgb[:, 1]
+        points_struct['r'] = rgb[:, 2]
+        points_struct['a'] = 255 # Alpha通道
 
-        # 创建并填充PointCloud2消息
-        pc_msg = PointCloud2(
-            header=header,
-            height=1,
-            width=len(points_3d),
-            is_dense=False, # 因为我们过滤掉了一些点
-            is_bigendian=False,
-            fields=fields,
-            point_step=16, # 4字节*3(xyz) + 4字节(rgb) = 16字节
-            row_step=16 * len(points_3d),
-            data=b"".join(points_data)
-        )
+        # --- 使用ros2_numpy将结构化数组高效转换为PointCloud2消息 ---
+        # 确保你已经安装了: pip install ros2-numpy
+        pc_msg = array_to_pointcloud2(points_struct, color_msg.header)
 
-        # --- 5. 发布点云 ---
         self.pc_publisher.publish(pc_msg)
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = ColorPointCloudGenerator()
+    # 安装ros2_numpy: pip install ros2-numpy
     try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        from ros2_numpy.point_cloud2 import array_to_pointcloud2
+    except ImportError:
+        print("请安装 ros2_numpy: pip install ros2-numpy")
+        return
+
+    node = ColorPointCloudGeneratorOptimized()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

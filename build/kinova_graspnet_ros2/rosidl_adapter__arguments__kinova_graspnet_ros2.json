@@ -1,0 +1,7 @@
+{
+  "package_name": "kinova_graspnet_ros2",
+  "non_idl_tuples": [
+    "/home/sgan/ws_demo_1/src/kinova_graspnet_ros2:srv/DetectGrasps.srv",
+    "/home/sgan/ws_demo_1/src/kinova_graspnet_ros2:srv/ExecuteGrasp.srv"
+  ]
+}
