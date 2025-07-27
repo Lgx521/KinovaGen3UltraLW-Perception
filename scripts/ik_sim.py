@@ -6,6 +6,7 @@ from numpy import pi
 
 '''
 requirement:
+pip install roboticstoolbox-python
 numpy == 1.26.4
 '''
 
