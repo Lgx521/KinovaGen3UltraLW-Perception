@@ -6,67 +6,83 @@ from numpy import pi
 
 '''
 requirement:
-pip install roboticstoolbox-python
-numpy == 1.26.4
+numpy <= 2.0.0
 '''
 
-def plan_path_and_get_manipulability(robot, T_start, T_end, num_steps=100):
+def plot_frame(ax, T, length=0.005):
+    """
+    在给定的3D坐标轴上绘制一个坐标系。
+    
+    参数:
+    ax (Axes3D): Matplotlib的3D坐标轴对象。
+    T (SE3): 要可视化的位姿。
+    length (float): 坐标轴的显示长度。
+    """
+    origin = T.t
+    x_axis = T.R[:, 0]  # X轴向量 (旋转矩阵的第一列)
+    y_axis = T.R[:, 1]  # Y轴向量 (旋转矩阵的第二列)
+    z_axis = T.R[:, 2]  # Z轴向量 (旋转矩阵的第三列)
+    
+    # 绘制X轴 (红色)
+    ax.plot([origin[0], origin[0] + length * x_axis[0]], 
+            [origin[1], origin[1] + length * x_axis[1]], 
+            [origin[2], origin[2] + length * x_axis[2]], color='red', linewidth=2)
+    
+    # 绘制Y轴 (绿色)
+    ax.plot([origin[0], origin[0] + length * y_axis[0]], 
+            [origin[1], origin[1] + length * y_axis[1]], 
+            [origin[2], origin[2] + length * y_axis[2]], color='green', linewidth=2)
+    
+    # 绘制Z轴 (蓝色)
+    ax.plot([origin[0], origin[0] + length * z_axis[0]], 
+            [origin[1], origin[1] + length * z_axis[1]], 
+            [origin[2], origin[2] + length * z_axis[2]], color='blue', linewidth=2)
+
+
+def plan_path_and_get_manipulability(robot, q_start, T_end, num_steps=100):
     """
     规划路径，计算IK并获取可操作性指数。
     
-    参数:
-    robot (rtb.DHRobot): 机器人模型。
-    T_start (SE3): 起始位姿。
-    T_end (SE3): 结束位姿。
-    num_steps (int): 路径点数量。
-    
     返回:
-    tuple: (路径点列表, 可操作性指数列表, 关节角度列表)
+    tuple: (完整位姿轨迹, 可操作性指数列表, 关节角度列表)
     """
     print("开始路径规划...")
     
-    # 1. 生成平滑的笛卡尔轨迹
-    # ctraj (Cartesian trajectory) 生成从T_start到T_end的SE3对象列表
+    T_start = robot.fkine(q_start)
     traj = rtb.ctraj(T_start, T_end, num_steps)
     
-    path_points = []
+    successful_traj = [] # 存储成功的SE3位姿
     manipulability_indices = []
     joint_path = []
     
-    # 2. 求解轨迹上每个点的逆运动学
-    q_current = None # 初始猜测为空
+    q_current = q_start
+    
     for T in traj:
-        # ikine_LM 是一个鲁棒的IK求解器 (Levenberg-Marquardt)
-        # 它返回一个包含解、成功状态、迭代次数等的元组
-        sol = robot.ikine_LM(T, q0=q_current, ilimit=50)
+        sol = robot.ikine_LM(T, q0=q_current, ilimit=30, joint_limits=True)
         
         if sol.success:
             q_solution = sol.q
+            successful_traj.append(T) # 保存完整的SE3对象
             
-            # 保存路径点 (从SE3对象中提取位置)
-            path_points.append(T.t)
-            
-            # 3. 计算可操作性
-            # 工具箱自带了计算可操作性的函数！
             m = robot.manipulability(q_solution, method='yoshikawa')
             manipulability_indices.append(m)
             
-            # 保存关节角度
             joint_path.append(q_solution)
-            
-            # 更新下一次IK的初始猜测值，以保证路径平滑
             q_current = q_solution
         else:
-            print(f"Ik failed on the path")
+            print(f"警告: 逆运动学在轨迹的某一点求解失败。")
+            break
 
-    print("Path planning FINISHED")
-    return np.array(path_points), np.array(manipulability_indices), np.array(joint_path)
+    print(f"路径规划完成。成功规划了 {len(successful_traj)}/{num_steps} 个点。")
+    return successful_traj, np.array(manipulability_indices), np.array(joint_path)
 
 
 # --- 主程序 ---
 if __name__ == "__main__":
-    # Definition of DH params
-    d1 = -(156.43 + 128.38) / 1000.0
+    # 根据图片中的表格定义经典DH参数
+    # 同样地，我们将 alpha=410.0 视为笔误并设为0.0。
+    
+    d1 = -(156.43 + 128.38) / 1000.0 # 假设单位是mm，转换为米
     d2 = -5.38 / 1000.0
     d3 = -6.38 / 1000.0
     d4 = -(208.43 + 105.93) / 1000.0
@@ -84,40 +100,57 @@ if __name__ == "__main__":
         rtb.RevoluteDH(d=d6, a=0, alpha=pi, offset=np.pi)
     ]
     
-    # 从连杆列表创建DHRobot对象
-    # DHRobot的base属性可以设置这个固定变换。
-    base_transform = SE3(0.2, 0.3, 0.5) * SE3.RPY([0, 0, np.pi], order='xyz')
-    robot = rtb.DHRobot(links[1:], name="MyRobot", base=base_transform)
-    print(robot) # 打印机器人摘要信息
+    robot = rtb.DHRobot(links, name="MyDebugRobot")
+    print("--- 用于调试的机器人模型 ---")
+    print(robot)
+    
+    q_start = np.zeros(robot.n)
+    T_start = SE3(0.5, 0.3, 0.5) * SE3.RPY([0, 0, np.pi], order='xyz')
 
-    # 定义起始和结束位姿
-    # 起始位姿：让机器人处于一个初始姿态，例如零角度
-    q_start = np.zeros(robot.n) # robot.n 是自由度数量 (6)
-    T_start = robot.fkine(q_start) # 计算零角度时的位姿
-
-    # 结束位姿：位置 + 姿态 (使用SE3对象)
-    # 位置(x, y, z)和姿态(roll, pitch, yaw)
-    T_end = SE3(0.5, 0.3, 0.5) * SE3.RPY([0, 0, np.pi], order='xyz')
+    # 创建一个可达的目标位姿
+    T_end = SE3(-0.5, 0.3, 0.5) * SE3.RPY([0, 0, 0], order='xyz')
+    print(f"\n设定一个可达的目标位姿: \n{T_end}")
     
     # 规划路径并计算
-    path, manipulability, joints = plan_path_and_get_manipulability(robot, T_start, T_end, num_steps=100)
+    full_traj, manipulability, joints = plan_path_and_get_manipulability(robot, q_start, T_end, num_steps=100)
     
     # --- 可视化 ---
-    if path.shape[0] > 0:
+    if joints.shape[0] > 0:
+        # 可视化机器人动画 (可选，会生成一个GIF)
+        # print("正在生成机器人运动动画GIF...")
+        # robot.plot(joints, movie='robot_path.gif')
+
         fig = plt.figure(figsize=(15, 6))
         
-        # 1. 可视化笛卡尔路径
+        # 1. 可视化笛卡尔路径和位姿
         ax1 = fig.add_subplot(1, 2, 1, projection='3d')
-        ax1.plot(path[:, 0], path[:, 1], path[:, 2], 'b-o', markersize=3, label='End-effector Path')
-        ax1.scatter(path[0, 0], path[0, 1], path[0, 2], c='green', s=100, label='Start', zorder=10)
-        ax1.scatter(path[-1, 0], path[-1, 1], path[-1, 2], c='red', s=100, label='End', zorder=10)
-        ax1.set_title('Cartesian Path of the End-Effector')
+        
+        # 从SE3对象列表中提取位置点用于绘制路径线
+        path_points = np.array([T.t for T in full_traj])
+        ax1.plot(path_points[:, 0], path_points[:, 1], path_points[:, 2], 'c--', label='End-effector Path')
+        
+        # --- 新增：绘制位姿坐标系 ---
+        plot_interval = 5  # 每隔10个点绘制一次坐标系，避免图形过于杂乱
+        axis_length = 0.02  # 坐标轴的显示长度
+        
+        # 绘制路径上间隔的位姿
+        for T in full_traj[::plot_interval]:
+            plot_frame(ax1, T, length=axis_length)
+
+        # 绘制起点和终点的位姿
+        # for T in full_traj[0:-1:len(full_traj)-1]:
+        #     plot_frame(ax1, T, length=axis_length)
+
+        # 确保绘制起始和结束位姿
+        plot_frame(ax1, full_traj[0], length=axis_length)
+        plot_frame(ax1, full_traj[-1], length=axis_length)
+
+        ax1.set_title('Cartesian Path and Pose of the End-Effector')
         ax1.set_xlabel('X (m)')
         ax1.set_ylabel('Y (m)')
         ax1.set_zlabel('Z (m)')
         ax1.legend()
         ax1.grid(True)
-        # 保持坐标轴比例一致
         ax1.set_aspect('equal')
 
         # 2. 可视化可操作性指数
