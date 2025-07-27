@@ -65,10 +65,8 @@ def plan_path_and_get_manipulability(robot, T_start, T_end, num_steps=100):
 
 # --- 主程序 ---
 if __name__ == "__main__":
-    # 根据图片中的表格定义经典DH参数
-    # 同样地，我们将 alpha=410.0 视为笔误并设为0.0。
-    
-    d1 = -(156.43 + 128.38) / 1000.0 # 假设单位是mm，转换为米
+    # Definition of DH params
+    d1 = -(156.43 + 128.38) / 1000.0
     d2 = -5.38 / 1000.0
     d3 = -6.38 / 1000.0
     d4 = -(208.43 + 105.93) / 1000.0
@@ -87,9 +85,6 @@ if __name__ == "__main__":
     ]
     
     # 从连杆列表创建DHRobot对象
-    # 注意：表格有7行(0-6)，这对应一个7自由度的机械臂。
-    # 如果关节1-6是可动的，那这是一个6自由度的机械臂，我们应该只用6个连杆。
-    # 这里我们假设关节1-6是可动的，第0行是基座变换。
     # DHRobot的base属性可以设置这个固定变换。
     base_transform = SE3(0.2, 0.3, 0.5) * SE3.RPY([0, 0, np.pi], order='xyz')
     robot = rtb.DHRobot(links[1:], name="MyRobot", base=base_transform)
