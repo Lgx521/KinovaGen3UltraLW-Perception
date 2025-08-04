@@ -1,0 +1,26 @@
+[31mCMake Error at /opt/ros/humble/share/rcl_logging_spdlog/cmake/ament_cmake_export_dependencies-extras.cmake:21 (find_package):
+  By not providing "Findspdlog.cmake" in CMAKE_MODULE_PATH this project has
+  asked CMake to find a package configuration file provided by "spdlog", but
+  CMake did not find one.
+
+  Could not find a package configuration file provided by "spdlog" with any
+  of the following names:
+
+    spdlogConfig.cmake
+    spdlog-config.cmake
+
+  Add the installation prefix of "spdlog" to CMAKE_PREFIX_PATH or set
+  "spdlog_DIR" to a directory containing one of the above files.  If "spdlog"
+  provides a separate development package or SDK, be sure it has been
+  installed.
+Call Stack (most recent call first):
+  /opt/ros/humble/share/rcl_logging_spdlog/cmake/rcl_logging_spdlogConfig.cmake:41 (include)
+  /opt/ros/humble/share/rcl/cmake/ament_cmake_export_dependencies-extras.cmake:21 (find_package)
+  /opt/ros/humble/share/rcl/cmake/rclConfig.cmake:41 (include)
+  /opt/ros/humble/share/libstatistics_collector/cmake/ament_cmake_export_dependencies-extras.cmake:21 (find_package)
+  /opt/ros/humble/share/libstatistics_collector/cmake/libstatistics_collectorConfig.cmake:41 (include)
+  /opt/ros/humble/share/rclcpp/cmake/ament_cmake_export_dependencies-extras.cmake:21 (find_package)
+  /opt/ros/humble/share/rclcpp/cmake/rclcppConfig.cmake:41 (include)
+  CMakeLists.txt:11 (find_package)
+
+[0m

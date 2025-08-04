@@ -1,0 +1,17 @@
+octomap_server:
+  ros__parameters:
+    frame_id: "world"
+
+    point_cloud_topic: "/camera/depth/color/points"
+
+    resolution: 0.02
+
+    sensor_model:
+      max_range: 2.0
+      min_range: 0.2
+
+    occupied_thresh: 0.65
+
+    free_thresh: 0.30
+
+    latch: false
