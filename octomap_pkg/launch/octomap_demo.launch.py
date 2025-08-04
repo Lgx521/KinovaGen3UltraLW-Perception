@@ -29,7 +29,7 @@ def generate_launch_description():
 #        executable='rviz2',
 #        name='rviz2',
 #        arguments=['-d', os.path.join(get_package_share_directory('my_robot_config'), 'rviz', #'octomap.rviz')] 
-    )
+    # )
 
     return LaunchDescription([
         octomap_server_node,

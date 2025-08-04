@@ -4,11 +4,11 @@ octomap_server:
 
     point_cloud_topic: "/camera/depth/color/points"
 
-    resolution: 0.02
+    resolution: 0.01
 
     sensor_model:
-      max_range: 2.0
-      min_range: 0.2
+      max_range: 1.0
+      min_range: 0.15
 
     occupied_thresh: 0.65
 
